@@ -11,9 +11,6 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { mkdir } from "fs/promises";
 
-// Import worker functions (adjust relative path)
-import { downloadFileFromS3, transcodeVideo } from "../worker/worker.js";
-
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -91,8 +88,6 @@ export const pollMessages = async () => {
         try {
           // Ensure folder exists before downloading
           await ensureDirExists(workerVideosDir);
-
-          console.log("Transcoding completed for:", file);
         } catch (err) {
           console.error("Failed to download/transcode:", err);
           continue;

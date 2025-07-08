@@ -8,14 +8,14 @@ import {
 } from "@aws-sdk/client-s3";
 import ffmpeg from "fluent-ffmpeg";
 
-import { createReadStream, createWriteStream } from "fs";
+import { createReadStream, createWriteStream, unlink } from "fs";
 import { mkdir } from "fs/promises";
 
 import path from "path";
-import { fileURLToPath } from "url";
+// import { fileURLToPath } from "url";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+// const __filename = fileURLToPath(import.meta.url);
+// const __dirname = path.dirname(__filename);
 
 const RESOLUTIONS = [
   { name: "360p", width: 480, height: 360 },
@@ -32,10 +32,7 @@ const s3Client = new S3Client({
   },
 });
 
-// Default videos folder inside container folder
-// const VIDEOS_DIR = path.resolve(__dirname, "videos"); // will create/use a 'videos' folder relative to current file
-
-const VIDEOS_DIR = path.resolve("/app/videos"); // will create/use a 'videos' folder relative to the app folder
+const VIDEOS_DIR = path.resolve("/app/videos");
 async function ensureDirExists(dir) {
   try {
     await mkdir(dir, { recursive: true });
@@ -87,7 +84,7 @@ async function downloadFileFromS3(key, baseDir = VIDEOS_DIR) {
 
 async function uploadTranscodedVideo(filePath, resolutionName) {
   const Bucket = process.env.AWS_PRODUCTION_BUCKET_NAME;
-  const key = `transcoded/${resolutionName}-${path.basename(filePath)}`;
+  const key = `transcoded/${path.basename(filePath)}`;
 
   try {
     const fileStream = createReadStream(filePath);
@@ -109,36 +106,41 @@ async function uploadTranscodedVideo(filePath, resolutionName) {
 async function transcodeVideo(inputPath) {
   await ensureDirExists(VIDEOS_DIR);
 
+  const inputName = path.basename(inputPath, path.extname(inputPath)); // filename without extension
+
   const results = await Promise.all(
     RESOLUTIONS.map((resolution) => {
       return new Promise((resolve, reject) => {
-        const outputPath = path.join(
-          VIDEOS_DIR,
-          `${resolution.name}-video.mp4`
-        );
-        const s3Key = `transcoded/${resolution.name}-${path.basename(
-          outputPath
-        )}`;
+        const outputFileName = `${inputName}-${resolution.name}.mp4`;
+        const outputPath = path.join(VIDEOS_DIR, outputFileName);
+        const s3Key = `transcoded/${outputFileName}`;
 
         ffmpeg(inputPath)
           .output(outputPath)
           .videoCodec("libx264")
           .audioCodec("aac")
+          .audioBitrate("128k")
           .size(`${resolution.width}x${resolution.height}`)
           .format("mp4")
+          .on("start", (cmd) => {
+            console.log(`FFmpeg started for ${resolution.name}:`, cmd);
+          })
           .on("end", async () => {
             try {
-              console.log(`Transcoding complete: ${outputPath}`);
+              console.log(`✅ Transcoding complete: ${outputPath}`);
               await uploadTranscodedVideo(outputPath, resolution.name);
+
+              // await unlink(outputPath); // Clean up local file after upload
               resolve({ resolution: resolution.name, outputPath, s3Key });
             } catch (err) {
+              console.error(`❌ Upload failed for ${resolution.name}:`, err);
               reject(err);
             }
           })
           .on("error", (err) => {
             console.error(
-              `Error transcoding video to ${resolution.name}:`,
-              err
+              `❌ FFmpeg error for ${resolution.name}:`,
+              err.message
             );
             reject(err);
           })
@@ -147,7 +149,12 @@ async function transcodeVideo(inputPath) {
     })
   );
 
-  console.log("All videos transcoded and uploaded:", results);
+  console.log("✅ All videos transcoded and uploaded:", results);
+  try {
+    // await unlink(inputPath); // Clean up the original file after processing
+  } catch (err) {
+    console.error("Error cleaning up original file:", err);
+  }
   return results;
 }
 

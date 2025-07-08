@@ -1,8 +1,14 @@
 import fs from "fs";
-import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+import {
+  S3Client,
+  PutObjectCommand,
+  GetObjectCommand,
+} from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { downloadFileFromS3, transcodeVideo } from "../worker/worker.js";
 import prisma from "../db/db.config.js";
 import dotenv from "dotenv";
+import cleanFileName from "../utils/CleanFileNamE.js";
 dotenv.config();
 
 const Client = new S3Client({
@@ -35,7 +41,9 @@ export const uploadFileToS3 = async (req, res) => {
     await Client.send(command);
 
     const localFilePath = await downloadFileFromS3(s3RawKey);
-    const transcodedVideos = await transcodeVideo(localFilePath);
+    const cleanedPath = await cleanFileName(localFilePath);
+
+    const transcodedVideos = await transcodeVideo(cleanedPath);
 
     const savedVideos = [];
 
@@ -47,7 +55,7 @@ export const uploadFileToS3 = async (req, res) => {
           originalS3Key: s3RawKey,
           transcodedS3Key: s3Key,
           resolution,
-          userId: req.userId,
+          userId: req.user.userId,
         },
       });
       savedVideos.push(video);
@@ -62,5 +70,26 @@ export const uploadFileToS3 = async (req, res) => {
   } catch (error) {
     console.error("Upload or processing error:", error);
     res.status(500).json({ error: "Something went wrong" });
+  }
+};
+
+export const DownloadVideo = async (req, res) => {
+  try {
+    const rawKey = decodeURIComponent(req.params.key);
+
+    const command = new GetObjectCommand({
+      Bucket: process.env.AWS_PRODUCTION_BUCKET_NAME,
+      Key: rawKey,
+      ResponseContentDisposition: "attachment",
+    });
+
+    const signedUrl = await getSignedUrl(Client, command, {
+      expiresIn: 3600,
+    });
+
+    return res.redirect(signedUrl);
+  } catch (error) {
+    console.error(" Signed URL generation error:", error.message);
+    return res.status(404).json({ error: "File not found or inaccessible" });
   }
 };

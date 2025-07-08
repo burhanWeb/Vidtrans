@@ -27,15 +27,19 @@ export const register = async (req, res) => {
         email,
         password: hashedPassword,
       },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+      },
     });
 
     const tokenPayload = { name: user.name, userId: user.id };
     createJWT(tokenPayload, res);
 
-    res.status(200).json(tokenPayload);
+    res.status(200).json(user);
   } catch (error) {
     console.log(error);
-
     res.status(500).json({ error: "Something went wrong" });
   }
 };
@@ -53,7 +57,7 @@ export const login = async (req, res) => {
     });
 
     if (!user) {
-      return res.status(400).json({ error: "Invalid credentials" });
+      return res.status(400).json({ error: "user not found" });
     }
 
     const isPasswordValid = await bcrypt.compare(password, user.password);

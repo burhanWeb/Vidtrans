@@ -1,4 +1,4 @@
-version: "3.9"
+version: "3.8"
 
 services:
   postgres:
@@ -13,6 +13,11 @@ services:
     ports:
       - "5434:5432"
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   migrate:
     build:
@@ -20,11 +25,11 @@ services:
       dockerfile: DockerFile
     container_name: vidtrans_migrate
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
-    command:
-      ["sh", "./wait-for.sh", "postgres", "npx", "prisma", "migrate", "deploy"]
+    command: ["npx", "prisma", "migrate", "deploy"]
     restart: "no"
 
   api:
@@ -35,21 +40,25 @@ services:
     ports:
       - "3000:3000"
     depends_on:
-      - postgres
-      - migrate
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    volumes:
+      - ./server:/app
+      - /app/node_modules
+      - ./server/videos:/app/videos
     environment:
       NODE_ENV: production
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      JWT_SECRET: ${JWT_SECRET}
       AWS_REGION: ${AWS_REGION}
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
       AWS_BUCKET_NAME: ${AWS_BUCKET_NAME}
       AWS_PRODUCTION_BUCKET_NAME: ${AWS_PRODUCTION_BUCKET_NAME}
-      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
-      JWT_SECRET: ${JWT_SECRET}
-    volumes:
-      - ./server/videos:/app/videos
+    command: ["node", "server.js"]
     restart: unless-stopped
-    command: ["sh", "./wait-for.sh", "postgres", "node", "server.js"]
 
   poller:
     build:
@@ -57,18 +66,22 @@ services:
       dockerfile: DockerFile
     container_name: vidtrans_poller
     depends_on:
-      - postgres
-      - migrate
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    volumes:
+      - ./server:/app
+      - /app/node_modules
+      - ./server/videos:/app/videos
     environment:
       AWS_REGION: ${AWS_REGION}
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
       AWS_PRODUCTION_BUCKET_NAME: ${AWS_PRODUCTION_BUCKET_NAME}
       QUEUE_URL: https://sqs.ap-south-1.amazonaws.com/107346957471/VidTransQueue
-    volumes:
-      - ./server/videos:/app/videos
+    command: ["node", "poller/poller.js"]
     restart: unless-stopped
-    command: ["sh", "./wait-for.sh", "postgres", "node", "poller/poller.js"]
 
   worker:
     build:
@@ -76,17 +89,50 @@ services:
       dockerfile: DockerFile
     container_name: vidtrans_worker
     depends_on:
-      - postgres
-      - migrate
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    volumes:
+      - ./server:/app
+      - /app/node_modules
+      - ./server/videos:/app/videos
     environment:
       AWS_REGION: ${AWS_REGION}
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
       AWS_PRODUCTION_BUCKET_NAME: ${AWS_PRODUCTION_BUCKET_NAME}
-    volumes:
-      - ./server/videos:/app/videos
+    command: ["node", "worker/worker.js"]
     restart: unless-stopped
-    command: ["sh", "./wait-for.sh", "postgres", "node", "worker/worker.js"]
+
+  client:
+    build:
+      context: ./client
+      dockerfile: DockerFile
+    container_name: vidtrans_client
+    ports:
+      - "5173:5173"
+    environment:
+      - NODE_ENV=development
+    volumes:
+      - ./client:/app
+      - /app/node_modules
+    depends_on:
+      - api
+
+  # Optional: NGINX proxy (stub for SSL or reverse proxy)
+  # nginx:
+  #   image: nginx:latest
+  #   ports:
+  #     - "80:80"
+  #     - "443:443"
+  #   volumes:
+  #     - ./nginx:/etc/nginx/conf.d
+  #   depends_on:
+  #     - api
+  #     - client
+  #   restart: unless-stopped
 
 volumes:
   postgres_data:
+    name: vidtrans_pgdata

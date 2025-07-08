@@ -16,6 +16,7 @@ const ProtectedRoute = (req, res, next) => {
 
     const { name, userId } = payload;
     req.user = { userId, name };
+    console.log(payload);
 
     next();
   } catch (error) {
