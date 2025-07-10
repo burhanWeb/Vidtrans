@@ -12,27 +12,4 @@ AWS S3 for storing original and transcoded files
 Poller + Worker architecture to separate upload and processing
 PostgreSQLwith Prisma ORM for user and video metadata
 JWT Authentication
-- 🐳 Fully **Dockerized** for easy development and deployment
-
----
-
-System Architecture
-
-
-User (Frontend)
-   ↓
-Upload (Backend API)
-   ↓
-AWS S3 (store original video)
-   ↓
-AWS SQS (queue job)
-   ↓
-Poller (listens for new messages)
-   ↓
-Worker (processes video with FFmpeg)
-   ↓
-AWS S3 (store transcoded)
-   ↓
-PostgreSQL (save video info)
-   ↓
-Frontend (User sees their transcoded videos)
+ Fully **Dockerized** for easy development and deployment
