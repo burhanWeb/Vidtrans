@@ -93,3 +93,18 @@ export const DownloadVideo = async (req, res) => {
     return res.status(404).json({ error: "File not found or inaccessible" });
   }
 };
+
+export const getAllVideos = async (req, res) => {
+  try {
+    const videos = await prisma.video.findMany({
+      where: {
+        userId: req.user.userId,
+      },
+    });
+
+    res.status(200).json(videos);
+  } catch (error) {
+    console.error(" Signed URL generation error:", error.message);
+    return res.status(404).json({ error: "File not found or inaccessible" });
+  }
+};
